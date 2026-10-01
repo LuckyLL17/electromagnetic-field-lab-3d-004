@@ -1,14 +1,327 @@
-import { useMemo, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Line, OrbitControls, Text } from '@react-three/drei';
-import * as THREE from 'three';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  CameraBridge,
+  CameraPose,
+  DEFAULT_CONFIGS,
+  FieldConfig,
+  Mode,
+  SideId,
+  swapConfigs,
+} from './dual-view';
+import { EMView } from './scene';
 
-type Mode='dipole'|'coil'|'capacitor';
-const colors={field:'#68d7f2',vector:'#f6c86f',positive:'#f27f73',negative:'#6a9fff',coil:'#d995f2'};
-function fieldAt(x:number,y:number,z:number,mode:Mode,strength:number){ if(mode==='capacitor') return new THREE.Vector3(0,strength*(.9+.12*Math.cos(x*1.7)),0); if(mode==='coil') return new THREE.Vector3(-z*.35*strength, .15*strength, x*.35*strength); const r2=x*x+y*y+z*z+.18; const scale=strength/Math.pow(r2,2.1); return new THREE.Vector3(3*x*z*scale, (3*y*y-r2)*scale, 3*z*x*scale); }
-function FieldLines({mode,strength}:{mode:Mode;strength:number}){const lines=useMemo(()=>{if(mode==='capacitor')return Array.from({length:10},(_,i)=>{const x=-2.6+i*.58;return [new THREE.Vector3(x,-2,0),new THREE.Vector3(x,2,0)]});if(mode==='coil')return Array.from({length:12},(_,i)=>{const a=i/12*Math.PI*2;return Array.from({length:32},(_,j)=>{const t=j/31*Math.PI*2;const r=1.15+.65*Math.sin(a*2)**2;return new THREE.Vector3(Math.cos(t)*r,Math.sin(t)*r*.55,Math.sin(a)*.3)});});return Array.from({length:14},(_,i)=>{const a=i/14*Math.PI*2;return Array.from({length:34},(_,j)=>{const t=j/33*Math.PI*2;const r=1.05+.23*Math.sin(t*2+a);return new THREE.Vector3(Math.cos(a)*r*Math.cos(t),Math.sin(t)*r,Math.sin(a)*r*Math.cos(t))})});},[mode]);return <group>{lines.map((line,i)=><Line key={i} points={line} color={mode==='coil'?colors.coil:colors.field} lineWidth={1.6} transparent opacity={.78}/>)}</group>}
-function Vectors({mode,strength,showVectors}:{mode:Mode;strength:number;showVectors:boolean}){const vectors=useMemo(()=>Array.from({length:25},(_,i)=>{const x=-2.4+(i%5)*1.2,y=-2.4+Math.floor(i/5)*1.2;const v=fieldAt(x,y,0,mode,strength);const start=new THREE.Vector3(x,y,mode==='capacitor'?.15:0);const end=start.clone().add(v.normalize().multiplyScalar(.35));return [start,end] as [THREE.Vector3,THREE.Vector3]}),[mode,strength]);return <group>{showVectors&&vectors.map((v,i)=><Line key={i} points={v} color={colors.vector} lineWidth={1.3}/>)}</group>}
-function Source({mode,strength}:{mode:Mode;strength:number}){if(mode==='capacitor')return <group><mesh position={[-3,0,0]}><boxGeometry args={[.16,5.2,.55]}/><meshStandardMaterial color={colors.positive}/></mesh><mesh position={[3,0,0]}><boxGeometry args={[.16,5.2,.55]}/><meshStandardMaterial color={colors.negative}/></mesh><Text position={[-2.82,2.75,.2]} fontSize={.2} color={colors.positive}>+Q</Text><Text position={[2.82,2.75,.2]} fontSize={.2} color={colors.negative}>−Q</Text></group>;if(mode==='coil')return <group>{Array.from({length:7},(_,i)=><mesh key={i} position={[0,0,(i-3)*.34]} rotation={[Math.PI/2,0,0]}><torusGeometry args={[1.55,.07,10,48]}/><meshStandardMaterial color={colors.coil} emissive={colors.coil} emissiveIntensity={strength*.12}/></mesh>)}</group>;return <group><mesh position={[-.8,0,0]}><sphereGeometry args={[.28,20,16]}/><meshStandardMaterial color={colors.positive} emissive={colors.positive} emissiveIntensity={.4}/></mesh><mesh position={[.8,0,0]}><sphereGeometry args={[.28,20,16]}/><meshStandardMaterial color={colors.negative} emissive={colors.negative} emissiveIntensity={.4}/></mesh><Line points={[new THREE.Vector3(-.8,0,0),new THREE.Vector3(.8,0,0)]} color="#d8e4ef" lineWidth={2}/></group>}
-function EMScene({mode,strength,showVectors}:{mode:Mode;strength:number;showVectors:boolean}){return <Canvas camera={{position:[6,4.5,8],fov:42}}><color attach="background" args={['#0b0b1c']}/><ambientLight intensity={1.2}/><pointLight position={[3,4,5]} color="#9a8cff" intensity={18}/><pointLight position={[-4,-2,2]} color="#49d5e7" intensity={12}/><group rotation={[.18,-.24,0]}><Source mode={mode} strength={strength}/><FieldLines mode={mode} strength={strength}/><Vectors mode={mode} strength={strength} showVectors={showVectors}/><mesh position={[0,0,-.45]}><planeGeometry args={[7,6]}/><meshBasicMaterial color="#25234b" transparent opacity={.12} side={THREE.DoubleSide}/></mesh></group><OrbitControls makeDefault minDistance={5} maxDistance={14}/></Canvas>}
-function Metric({label,value,note}:{label:string;value:string;note:string}){return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>}
-export default function App(){const [mode,setMode]=useState<Mode>('dipole');const [strength,setStrength]=useState(1.6);const [showVectors,setShowVectors]=useState(true);const modeLabel={dipole:'电偶极子',coil:'螺线管',capacitor:'平行板电容器'}[mode];return <div className="app"><header className="topbar"><div className="brand"><div className="brand-icon">✦</div><div><span className="eyebrow">ELECTROMAGNETISM / FIELD EXPLORER</span><h1>ElectroMag Lab <span>·</span> 电磁场与磁力线</h1></div></div><div className="header-meta"><span className="dataset">MODEL 03 / {modeLabel}</span><button onClick={()=>setShowVectors(v=>!v)}>{showVectors?'隐藏场矢量':'显示场矢量'}</button></div></header><main className="layout"><section className="model-card"><div className="model-head"><div><span className="eyebrow">3D FIELD MAPPING</span><h2>{modeLabel} · Field Line Tracer</h2></div><div className="mode-switch">{(['dipole','coil','capacitor'] as Mode[]).map(item=><button key={item} className={mode===item?'active':''} onClick={()=>setMode(item)}>{item==='dipole'?'电偶极子':item==='coil'?'螺线管':'平行板'}</button>)}</div></div><div className="canvas-wrap"><EMScene mode={mode} strength={strength} showVectors={showVectors}/><div className="viewer-legend"><span><i className="dot protein"/>场线</span><span><i className="dot ligand"/>场源</span><span><i className="dot interaction"/>矢量采样</span></div><div className="viewer-hint">左键旋转 · 滚轮缩放 · 切换场源模型</div></div></section><aside className="sidebar"><section className="panel intro-panel"><span className="eyebrow">FIELD EXPERIMENT</span><h3>三维场线实验台</h3><p>在电偶极子、螺线管与平行板电容器之间切换，观察电场/磁场的空间拓扑和方向分布。</p><div className="metrics"><Metric label="场强系数" value={strength.toFixed(1)} note="归一化"/><Metric label="场线束" value={mode==='capacitor'?'10':'14'} note="采样轨迹"/><Metric label="采样矢量" value={showVectors?'25':'关闭'} note="网格采样"/></div></section><section className="panel"><div className="panel-title"><div><span className="eyebrow">SOURCE CONTROL</span><h3>场源与强度</h3></div></div><label className="control"><span>激励强度 <b>{strength.toFixed(1)} ×</b></span><input type="range" min=".5" max="3" step=".1" value={strength} onChange={e=>setStrength(Number(e.target.value))}/></label><div className="source-list">{(['dipole','coil','capacitor'] as Mode[]).map(item=><button key={item} className={mode===item?'source active':''} onClick={()=>setMode(item)}><span className={`source-dot ${item}`}/>{item==='dipole'?'电偶极子':item==='coil'?'通电螺线管':'平行板电容器'}<em>{item==='dipole'?'E':item==='coil'?'B':'E'}</em></button>)}</div></section><section className="panel"><span className="eyebrow">FIELD READOUT</span><div className="readout"><div><span>当前场型</span><b>{mode==='coil'?'近似磁场':'静电场'}</b></div><div><span>方向约定</span><b>{mode==='coil'?'右手螺旋定则':'+ → −'}</b></div><div><span>模型精度</span><b>教学级采样</b></div></div></section></aside></main></div>}
+const MODE_LABEL: Record<Mode, string> = {
+  dipole: '电偶极子',
+  coil: '通电螺线管',
+  capacitor: '平行板电容器',
+};
+const MODE_SHORT: Record<Mode, string> = { dipole: '电偶极子', coil: '螺线管', capacitor: '平行板' };
+const MODE_FIELD: Record<Mode, string> = {
+  dipole: '静电场 E',
+  coil: '近似磁场 B',
+  capacitor: '静电场 E',
+};
+const MODE_RULE: Record<Mode, string> = {
+  dipole: '+ → −',
+  coil: '右手螺旋定则',
+  capacitor: '+ → −（匀强近似）',
+};
+const MODES: Mode[] = ['dipole', 'coil', 'capacitor'];
+
+function Metric({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
+}
+
+/** 单侧视图卡：头部标签 + 本场型切换 + Canvas + 覆盖层 + 强度/矢量/重置控制。 */
+function ViewPane({
+  side,
+  title,
+  config,
+  linked,
+  bridge,
+  fitNonce,
+  resetNonce,
+  onMode,
+  onStrength,
+  onToggleVectors,
+  onReset,
+  onUserChange,
+}: {
+  side: SideId;
+  title: string;
+  config: FieldConfig;
+  linked: boolean;
+  bridge: CameraBridge;
+  fitNonce: number;
+  resetNonce: number;
+  onMode: (mode: Mode) => void;
+  onStrength: (value: number) => void;
+  onToggleVectors: () => void;
+  onReset: () => void;
+  onUserChange: (side: SideId, pose: CameraPose) => void;
+}) {
+  return (
+    <section className={`view-pane pane-${side}`}>
+      <div className="view-head">
+        <div className="view-id">
+          <span className={`side-badge ${side}`}>{side === 'left' ? 'A' : 'B'}</span>
+          <div>
+            <span className="eyebrow">VIEW {side.toUpperCase()}</span>
+            <h2>{title}</h2>
+          </div>
+        </div>
+        <div className="mode-switch">
+          {MODES.map((item) => (
+            <button key={item} className={config.mode === item ? 'active' : ''} onClick={() => onMode(item)}>
+              {MODE_SHORT[item]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="canvas-wrap">
+        <EMView
+          side={side}
+          bridge={bridge}
+          config={config}
+          fitNonce={fitNonce}
+          resetNonce={resetNonce}
+          onUserChange={onUserChange}
+        />
+        <div className="viewer-legend">
+          <span>
+            <i className="dot protein" />场线
+          </span>
+          <span>
+            <i className="dot ligand" />场源
+          </span>
+          <span>
+            <i className="dot interaction" />矢量采样
+          </span>
+        </div>
+        <div className={`link-chip ${linked ? 'on' : 'off'}`}>
+          {linked ? '🔗 视角联动中' : '⊘ 视角独立'}
+        </div>
+        <div className="viewer-hint">左键旋转 · 滚轮缩放{linked ? ' · 联动同步' : ''}</div>
+      </div>
+
+      <div className="view-controls">
+        <label className="control">
+          <span>
+            激励强度 <b>{config.strength.toFixed(1)} ×</b>
+          </span>
+          <input
+            type="range"
+            min="0.5"
+            max="3"
+            step="0.1"
+            value={config.strength}
+            onChange={(e) => onStrength(Number(e.target.value))}
+          />
+        </label>
+        <div className="view-actions">
+          <button onClick={onToggleVectors}>{config.showVectors ? '隐藏场矢量' : '显示场矢量'}</button>
+          <button className="reset-btn" onClick={onReset} title="仅复位本侧相机视角">
+            ↺ 重置本侧视角
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function App() {
+  // 两侧独立保存场型 / 强度 / 矢量状态
+  const [configs, setConfigs] = useState<Record<SideId, FieldConfig>>(DEFAULT_CONFIGS);
+  const [linked, setLinked] = useState(false);
+  // 每侧各自的取景 / 重置信号；单侧重置只 bump 自己的 nonce
+  const [fitNonces, setFitNonces] = useState<Record<SideId, number>>({ left: 0, right: 0 });
+  const [resetNonces, setResetNonces] = useState<Record<SideId, number>>({ left: 0, right: 0 });
+
+  // 桥在整个应用生命周期内唯一；两个 Canvas 的 rig 都向它注册
+  const bridgeRef = useRef<CameraBridge | null>(null);
+  if (bridgeRef.current === null) bridgeRef.current = new CameraBridge();
+  const bridge = bridgeRef.current;
+
+  const updateSide = useCallback((side: SideId, patch: Partial<FieldConfig>) => {
+    setConfigs((prev) => ({ ...prev, [side]: { ...prev[side], ...patch } }));
+  }, []);
+
+  const handleLinkedChange = useCallback(
+    (value: boolean) => {
+      setLinked(value);
+      bridge.setLinked(value); // 开启时以左侧世界视角对齐，并保证两侧完整取景
+    },
+    [bridge],
+  );
+
+  // 交换配置：仅交换场型/强度/矢量；相机留在各自窗口
+  const handleSwap = useCallback(() => {
+    setConfigs((prev) => swapConfigs(prev));
+    // 场型变了，两侧都可能需要重新取景
+    setFitNonces((prev) => ({ left: prev.left + 1, right: prev.right + 1 }));
+  }, []);
+
+  const handleResetSide = useCallback((side: SideId) => {
+    setResetNonces((prev) => ({ ...prev, [side]: prev[side] + 1 }));
+  }, []);
+
+  const handleUserChange = useCallback(
+    (side: SideId, pose: CameraPose) => {
+      bridge.userChanged(side, pose);
+    },
+    [bridge],
+  );
+
+  const left = configs.left;
+  const right = configs.right;
+  const sameMode = left.mode === right.mode;
+  const strengthDelta = useMemo(
+    () => Math.abs(left.strength - right.strength).toFixed(1),
+    [left.strength, right.strength],
+  );
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-icon">✦</div>
+          <div>
+            <span className="eyebrow">ELECTROMAGNETISM / SPLIT-BENCH COMPARE</span>
+            <h1>
+              ElectroMag Lab <span>·</span> 双视图场型对照实验台
+            </h1>
+          </div>
+        </div>
+        <div className="header-meta">
+          <span className="dataset">
+            A: {MODE_SHORT[left.mode]} / B: {MODE_SHORT[right.mode]}
+          </span>
+          <button
+            className={linked ? 'link-btn on' : 'link-btn'}
+            onClick={() => handleLinkedChange(!linked)}
+            title="联动时两侧保持同一世界视角；独立时互不影响"
+          >
+            {linked ? '🔗 相机联动 · 开' : '🔗 相机联动 · 关'}
+          </button>
+          <button onClick={handleSwap} title="交换左右两侧的场型、强度与矢量配置">
+            ⇄ 交换配置
+          </button>
+        </div>
+      </header>
+
+      <main className="layout">
+        <section className="dual-grid" data-linked={linked}>
+          <ViewPane
+            side="left"
+            title={`${MODE_LABEL[left.mode]} · Field Line Tracer`}
+            config={left}
+            linked={linked}
+            bridge={bridge}
+            fitNonce={fitNonces.left}
+            resetNonce={resetNonces.left}
+            onMode={(mode) => updateSide('left', { mode })}
+            onStrength={(value) => updateSide('left', { strength: value })}
+            onToggleVectors={() => updateSide('left', { showVectors: !left.showVectors })}
+            onReset={() => handleResetSide('left')}
+            onUserChange={handleUserChange}
+          />
+          <div className="split-divider" aria-hidden>
+            <span>VS</span>
+          </div>
+          <ViewPane
+            side="right"
+            title={`${MODE_LABEL[right.mode]} · Field Line Tracer`}
+            config={right}
+            linked={linked}
+            bridge={bridge}
+            fitNonce={fitNonces.right}
+            resetNonce={resetNonces.right}
+            onMode={(mode) => updateSide('right', { mode })}
+            onStrength={(value) => updateSide('right', { strength: value })}
+            onToggleVectors={() => updateSide('right', { showVectors: !right.showVectors })}
+            onReset={() => handleResetSide('right')}
+            onUserChange={handleUserChange}
+          />
+        </section>
+
+        <aside className="sidebar">
+          <section className="panel intro-panel">
+            <span className="eyebrow">SPLIT FIELD EXPERIMENT</span>
+            <h3>左右对照实验台</h3>
+            <p>
+              两侧各自保存场型、激励强度与矢量采样状态。可交换 A/B 配置；开启相机联动后两侧保持同一世界视角，独立控制时旋转、缩放与重置互不干扰。
+            </p>
+            <div className="metrics">
+              <Metric label="A 场强系数" value={`${left.strength.toFixed(1)}×`} note="左视图" />
+              <Metric label="B 场强系数" value={`${right.strength.toFixed(1)}×`} note="右视图" />
+              <Metric label="强度差" value={`${strengthDelta}×`} note="|A − B|" />
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-title">
+              <div>
+                <span className="eyebrow">BENCH CONTROL</span>
+                <h3>对照与相机</h3>
+              </div>
+            </div>
+            <div className="bench-actions">
+              <button className={linked ? 'active' : ''} onClick={() => handleLinkedChange(!linked)}>
+                {linked ? '解除相机联动' : '开启相机联动'}
+              </button>
+              <button onClick={handleSwap}>⇄ 交换 A / B 配置</button>
+            </div>
+            <p className="panel-note">
+                              {linked
+                                ? '联动：以当前左视图视角对齐，任意一侧旋转/缩放都会同步；换模型或缩放窗口时自动拉远以保证两侧都完整取景。'
+                                : '独立：两侧相机完全隔离，单侧重置只复位自己；窗口缩放或换场型时各自重新取景。'}
+            </p>
+          </section>
+
+          <section className="panel">
+            <span className="eyebrow">COMPARE READOUT</span>
+            <div className="readout">
+              <div>
+                <span>场型对比</span>
+                <b>{sameMode ? '同型对照' : '异型对照'}</b>
+              </div>
+              <div>
+                <span>A 场类型</span>
+                <b>{MODE_FIELD[left.mode]}</b>
+              </div>
+              <div>
+                <span>B 场类型</span>
+                <b>{MODE_FIELD[right.mode]}</b>
+              </div>
+              <div>
+                <span>A 方向约定</span>
+                <b>{MODE_RULE[left.mode]}</b>
+              </div>
+              <div>
+                <span>B 方向约定</span>
+                <b>{MODE_RULE[right.mode]}</b>
+              </div>
+              <div>
+                <span>相机模式</span>
+                <b>{linked ? '联动（共享视角）' : '双相机独立'}</b>
+              </div>
+              <div>
+                <span>矢量采样</span>
+                <b>
+                  A {left.showVectors ? '开' : '关'} / B {right.showVectors ? '开' : '关'}
+                </b>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+  );
+}
